@@ -289,21 +289,37 @@ public actor QwenLLMProvider: LLMProvider {
     
     // MARK: - Context
     
+    /// Current system prompt (can be customized with tools)
+    private var currentSystemPrompt: String = ""
+    
+    /// Set a custom system prompt (e.g., with MCP tools injected)
+    public func setSystemPrompt(_ prompt: String) {
+        currentSystemPrompt = prompt
+        addSystemPrompt()
+    }
+    
     private func addSystemPrompt() {
+        let prompt = currentSystemPrompt.isEmpty ? defaultSystemPrompt : currentSystemPrompt
+        
         conversationHistory = [
             ConversationMessage(
                 role: .system,
-                content: """
-                Eres LAIA, asistente de voz. REGLAS ESTRICTAS:
-                - Responde SOLO en español
-                - Máximo 1-2 oraciones cortas
-                - Sin listas ni explicaciones largas
-                - Sin introducciones ni conclusiones
-                - Respuesta directa al punto
-                """
+                content: prompt
             )
         ]
         _currentContextTokens = estimateTokenCount(for: conversationHistory)
+    }
+    
+    /// Default system prompt (without tools)
+    private var defaultSystemPrompt: String {
+        """
+        Eres LAIA, asistente de voz. REGLAS ESTRICTAS:
+        - Responde SOLO en español
+        - Máximo 1-2 oraciones cortas
+        - Sin listas ni explicaciones largas
+        - Sin introducciones ni conclusiones
+        - Respuesta directa al punto
+        """
     }
     
     private func estimateTokenCount(for messages: [ConversationMessage]) -> Int {
@@ -322,5 +338,125 @@ public actor QwenLLMProvider: LLMProvider {
     
     public func getHistory() -> [ConversationMessage] {
         conversationHistory
+    }
+    
+    // MARK: - Tool Loop Support
+    
+    /// Añade un mensaje de herramienta al historial y regenera
+    /// - Parameter toolResponse: Respuesta formateada de la herramienta (<tool_response>...</tool_response>)
+    /// - Returns: Stream de tokens de la nueva generación
+    public func continueWithToolResult(_ toolResponse: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task { [weak self] in
+                guard let self = self else {
+                    continuation.finish(throwing: LAIAError.generationFailed("Deallocated"))
+                    return
+                }
+                
+                do {
+                    // Añadir respuesta de herramienta como mensaje del sistema
+                    await self.addToolResponse(toolResponse)
+                    
+                    // Regenerar sin prompt adicional (el modelo continúa desde el contexto)
+                    try await self.performContinuation(continuation: continuation)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+    
+    private func addToolResponse(_ response: String) {
+        // Añadir como mensaje especial (rol tool o usuario según implementación)
+        conversationHistory.append(ConversationMessage(role: .user, content: response))
+        _currentContextTokens = estimateTokenCount(for: conversationHistory)
+    }
+    
+    private func performContinuation(
+        continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        guard !isGenerating else {
+            throw LAIAError.invalidState("Already generating")
+        }
+        
+        isGenerating = true
+        defer { isGenerating = false }
+        
+        await metrics.record(.llmStart)
+        
+        logger.debug("Continuing generation with tool result...")
+        
+        #if canImport(MLXLLM)
+        guard let session = chatSession else {
+            throw LAIAError.modelNotLoaded("ChatSession")
+        }
+        
+        var isFirst = true
+        
+        do {
+            // Continuar la conversación - el modelo verá el tool_response
+            var response = try await session.respond(to: "Continúa tu respuesta usando los datos proporcionados.")
+            
+            // Filter and limit response
+            response = filterThinkingTokens(response)
+            response = limitResponseLength(response, maxWords: 80)
+            
+            // Stream word by word
+            for word in response.split(separator: " ") {
+                if Task.isCancelled { throw LAIAError.cancelled }
+                
+                if isFirst {
+                    await metrics.record(.llmFirstToken)
+                    isFirst = false
+                }
+                
+                continuation.yield(String(word) + " ")
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            
+            conversationHistory.append(ConversationMessage(role: .assistant, content: response))
+            
+        } catch {
+            logger.error("Continuation error: \(error.localizedDescription)")
+            throw error
+        }
+        
+        #else
+        // Fallback mode
+        let response = "He procesado la información de la herramienta."
+        for word in response.split(separator: " ") {
+            continuation.yield(String(word) + " ")
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        conversationHistory.append(ConversationMessage(role: .assistant, content: response))
+        #endif
+        
+        await metrics.record(.llmComplete)
+        continuation.finish()
+        logger.info("Continuation completed")
+    }
+    
+    /// Genera una respuesta completa (no streaming) - útil para tool loop
+    public func generateComplete(prompt: String) async throws -> String {
+        var fullResponse = ""
+        let stream = generate(prompt: prompt, context: conversationHistory)
+        
+        for try await token in stream {
+            fullResponse += token
+        }
+        
+        return fullResponse
+    }
+    
+    /// Continúa y retorna respuesta completa (para tool loop)
+    public func continueWithToolResultComplete(_ toolResponse: String) async throws -> String {
+        var fullResponse = ""
+        let stream = continueWithToolResult(toolResponse)
+        
+        for try await token in stream {
+            fullResponse += token
+        }
+        
+        return fullResponse
     }
 }
