@@ -2,10 +2,10 @@
 //  MCPSSEClient.swift
 //  LAIA
 //
-//  Cliente MCP manual para servidores con SSE transport (protocolo antiguo).
-//  Compatible con servidores Python que usan:
-//    - GET /sse → Handshake SSE (obtiene session_id)
-//    - POST /messages/?session_id=... → Envío de mensajes JSON-RPC
+//  Cliente MCP para servidores con SSE transport (protocolo FastMCP).
+//  - GET /sse → Stream SSE persistente (recibe respuestas)
+//  - POST /messages/?session_id=... → Envío de mensajes JSON-RPC
+//  - Las respuestas llegan por el stream SSE, no por HTTP response
 //
 //  Created by LAIA Team on 08/01/26.
 //
@@ -16,7 +16,7 @@ import os
 
 // MARK: - MCP SSE Client
 
-/// Cliente MCP manual para el protocolo SSE antiguo
+/// Cliente MCP para el protocolo SSE (FastMCP compatible)
 @MainActor
 public class MCPSSEClient: ObservableObject {
     
@@ -34,20 +34,20 @@ public class MCPSSEClient: ObservableObject {
     /// Session ID obtenido del handshake SSE
     private var sessionId: String?
     
-    /// URL base del servidor
-    private var baseURL: URL?
-    
     /// URL para enviar mensajes (POST)
     private var messagesURL: URL?
-    
-    /// Tarea de SSE activa
-    private var sseTask: Task<Void, Never>?
     
     /// ID para mensajes JSON-RPC
     private var messageId: Int = 0
     
-    /// Continuations pendientes para respuestas
-    private var pendingRequests: [Int: CheckedContinuation<JSONRPCResponse, Error>] = [:]
+    /// Continuations pendientes para respuestas (correlación por ID)
+    private var pendingRequests: [Int: CheckedContinuation<[String: Any], Error>] = [:]
+    
+    /// Tarea del stream SSE
+    private var sseStreamTask: Task<Void, Never>?
+    
+    /// Flag para indicar que la conexión está lista
+    private var isStreamReady = false
     
     // MARK: - Initialization
     
@@ -62,26 +62,23 @@ public class MCPSSEClient: ObservableObject {
         connectionState = .connecting
         logger.info("🔌 [SSE] Conectando a \(serverIP):\(port)...")
         
-        guard let sseURL = URL(string: "http://\(serverIP):\(port)/sse"),
-              let base = URL(string: "http://\(serverIP):\(port)") else {
+        guard let sseURL = URL(string: "http://\(serverIP):\(port)/sse") else {
             connectionState = .error("URL inválida")
             return
         }
         
-        baseURL = base
-        
         do {
-            // 1. Establecer conexión SSE y obtener session_id
-            try await establishSSEConnection(sseURL: sseURL)
+            // 1. Establecer stream SSE y obtener session_id
+            try await startSSEStream(sseURL: sseURL, serverIP: serverIP, port: port)
             
-            guard let sid = sessionId else {
+            // 2. Esperar un momento para que el stream esté listo
+            try await Task.sleep(for: .milliseconds(500))
+            
+            guard let sid = sessionId, messagesURL != nil else {
                 throw MCPSSEError.noSessionId
             }
             
-            // 2. Construir URL de mensajes con session_id
-            messagesURL = URL(string: "http://\(serverIP):\(port)/messages/?session_id=\(sid)")
-            
-            logger.info("✅ [SSE] Session ID obtenido: \(sid.prefix(20))...")
+            logger.info("✅ [SSE] Session ID: \(sid.prefix(20))...")
             
             // 3. Enviar initialize
             let initResult = try await sendInitialize()
@@ -105,13 +102,13 @@ public class MCPSSEClient: ObservableObject {
         }
     }
     
-    // MARK: - SSE Handshake
+    // MARK: - SSE Stream
     
-    /// Establece la conexión SSE y extrae el session_id
-    private func establishSSEConnection(sseURL: URL) async throws {
+    /// Inicia y mantiene el stream SSE abierto
+    private func startSSEStream(sseURL: URL, serverIP: String, port: Int) async throws {
         var request = URLRequest(url: sseURL)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 30
+        request.timeoutInterval = 300 // Largo timeout para SSE
         
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         
@@ -120,31 +117,25 @@ public class MCPSSEClient: ObservableObject {
             throw MCPSSEError.connectionFailed
         }
         
-        // Leer eventos SSE hasta obtener el endpoint con session_id
-        for try await line in bytes.lines {
-            logger.debug("[SSE] Línea: \(line)")
-            
-            // Buscar el evento "endpoint" que contiene el session_id
-            if line.hasPrefix("data:") {
-                let data = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                
-                // El data contiene la URL del endpoint con session_id
-                // Formato esperado: /messages/?session_id=xxx
-                if data.contains("session_id=") {
-                    if let range = data.range(of: "session_id=") {
-                        let sidStart = data[range.upperBound...]
-                        // Tomar hasta el final o hasta &
-                        if let endRange = sidStart.range(of: "&") {
-                            sessionId = String(sidStart[..<endRange.lowerBound])
-                        } else {
-                            sessionId = String(sidStart)
-                        }
-                        
-                        // Tenemos el session_id, salir del loop
-                        break
-                    }
+        // Procesar el stream SSE en background
+        sseStreamTask = Task { [weak self] in
+            do {
+                for try await line in bytes.lines {
+                    guard let self = self, !Task.isCancelled else { break }
+                    await self.processSSELine(line, serverIP: serverIP, port: port)
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.logger.error("❌ [SSE] Stream error: \(error.localizedDescription)")
                 }
             }
+        }
+        
+        // Esperar hasta obtener el session_id
+        var attempts = 0
+        while sessionId == nil && attempts < 50 {
+            try await Task.sleep(for: .milliseconds(100))
+            attempts += 1
         }
         
         if sessionId == nil {
@@ -152,10 +143,63 @@ public class MCPSSEClient: ObservableObject {
         }
     }
     
+    /// Procesa cada línea del stream SSE
+    private func processSSELine(_ line: String, serverIP: String, port: Int) async {
+        logger.debug("[SSE] Línea: \(line)")
+        
+        // Evento endpoint con session_id
+        if line.hasPrefix("data:") {
+            let data = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            
+            // Detectar URL del endpoint con session_id
+            if data.contains("session_id="), sessionId == nil {
+                if let range = data.range(of: "session_id=") {
+                    let sidStart = data[range.upperBound...]
+                    if let endRange = sidStart.range(of: "&") {
+                        sessionId = String(sidStart[..<endRange.lowerBound])
+                    } else {
+                        sessionId = String(sidStart)
+                    }
+                    
+                    // Construir URL de mensajes
+                    if let sid = sessionId {
+                        messagesURL = URL(string: "http://\(serverIP):\(port)/messages/?session_id=\(sid)")
+                        isStreamReady = true
+                        logger.info("✅ [SSE] Endpoint configurado")
+                    }
+                }
+                return
+            }
+            
+            // Intentar parsear como JSON-RPC response
+            if let jsonData = data.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                
+                // Verificar si es una respuesta con ID
+                if let id = json["id"] as? Int {
+                    logger.debug("📥 [SSE] Response id=\(id)")
+                    
+                    // Buscar continuation pendiente
+                    if let continuation = pendingRequests.removeValue(forKey: id) {
+                        if let error = json["error"] as? [String: Any] {
+                            let message = error["message"] as? String ?? "Unknown error"
+                            continuation.resume(throwing: MCPSSEError.serverError(message))
+                        } else if let result = json["result"] as? [String: Any] {
+                            continuation.resume(returning: result)
+                        } else {
+                            // Respuesta vacía pero válida
+                            continuation.resume(returning: [:])
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     // MARK: - JSON-RPC Messages
     
     /// Envía el mensaje initialize
-    private func sendInitialize() async throws -> InitializeResult {
+    private func sendInitialize() async throws -> SSEInitializeResult {
         let params: [String: Any] = [
             "protocolVersion": "2024-11-05",
             "capabilities": [:],
@@ -165,17 +209,12 @@ public class MCPSSEClient: ObservableObject {
             ]
         ]
         
-        let response = try await sendRequest(method: "initialize", params: params)
+        let result = try await sendRequest(method: "initialize", params: params)
         
-        // Parsear resultado
-        guard let result = response.result as? [String: Any] else {
-            throw MCPSSEError.invalidResponse
-        }
-        
-        var initResult = InitializeResult()
+        var initResult = SSEInitializeResult()
         
         if let serverInfo = result["serverInfo"] as? [String: Any] {
-            initResult.serverInfo = ServerInfo(
+            initResult.serverInfo = SSEServerInfo(
                 name: serverInfo["name"] as? String ?? "Unknown",
                 version: serverInfo["version"] as? String ?? "1.0"
             )
@@ -190,6 +229,7 @@ public class MCPSSEClient: ObservableObject {
     
     /// Envía la notificación initialized
     private func sendInitialized() async throws {
+        // Las notificaciones no esperan respuesta
         try await sendNotification(method: "notifications/initialized", params: [:])
     }
     
@@ -198,10 +238,9 @@ public class MCPSSEClient: ObservableObject {
     /// Descubre las herramientas disponibles
     public func discoverTools() async {
         do {
-            let response = try await sendRequest(method: "tools/list", params: [:])
+            let result = try await sendRequest(method: "tools/list", params: [:])
             
-            guard let result = response.result as? [String: Any],
-                  let tools = result["tools"] as? [[String: Any]] else {
+            guard let tools = result["tools"] as? [[String: Any]] else {
                 return
             }
             
@@ -235,11 +274,7 @@ public class MCPSSEClient: ObservableObject {
             "arguments": arguments
         ]
         
-        let response = try await sendRequest(method: "tools/call", params: params)
-        
-        guard let result = response.result as? [String: Any] else {
-            throw MCPSSEError.invalidResponse
-        }
+        let result = try await sendRequest(method: "tools/call", params: params)
         
         let isError = result["isError"] as? Bool ?? false
         var contentText = ""
@@ -263,8 +298,8 @@ public class MCPSSEClient: ObservableObject {
     
     // MARK: - Low-Level Request/Response
     
-    /// Envía una solicitud JSON-RPC y espera respuesta
-    private func sendRequest(method: String, params: [String: Any]) async throws -> JSONRPCResponse {
+    /// Envía una solicitud JSON-RPC y espera respuesta del stream SSE
+    private func sendRequest(method: String, params: [String: Any]) async throws -> [String: Any] {
         guard let url = messagesURL else {
             throw MCPSSEError.notConnected
         }
@@ -287,28 +322,32 @@ public class MCPSSEClient: ObservableObject {
         
         logger.debug("📤 [SSE] POST \(method) id=\(id)")
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Enviar POST (esperamos 202 Accepted, respuesta viene por SSE)
+        let (_, response) = try await URLSession.shared.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw MCPSSEError.invalidResponse
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw MCPSSEError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         
-        logger.debug("📥 [SSE] Response status: \(httpResponse.statusCode)")
+        logger.debug("📬 [SSE] Enviado, esperando respuesta en stream...")
         
-        guard httpResponse.statusCode == 200 || httpResponse.statusCode == 202 else {
-            throw MCPSSEError.httpError(httpResponse.statusCode)
+        // Esperar la respuesta del stream SSE usando continuation
+        return try await withCheckedThrowingContinuation { continuation in
+            Task { @MainActor in
+                self.pendingRequests[id] = continuation
+            }
+            
+            // Timeout de 30 segundos
+            Task {
+                try? await Task.sleep(for: .seconds(30))
+                await MainActor.run { [weak self] in
+                    if let continuation = self?.pendingRequests.removeValue(forKey: id) {
+                        continuation.resume(throwing: MCPSSEError.timeout)
+                    }
+                }
+            }
         }
-        
-        // Parsear respuesta JSON-RPC
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw MCPSSEError.invalidResponse
-        }
-        
-        return JSONRPCResponse(
-            id: json["id"] as? Int ?? id,
-            result: json["result"],
-            error: json["error"] as? [String: Any]
-        )
     }
     
     /// Envía una notificación (sin esperar respuesta)
@@ -334,14 +373,16 @@ public class MCPSSEClient: ObservableObject {
               (200...299).contains(httpResponse.statusCode) else {
             throw MCPSSEError.invalidResponse
         }
+        
+        logger.debug("📤 [SSE] Notificación enviada: \(method)")
     }
     
     // MARK: - Disconnect
     
     /// Desconecta del servidor
     public func disconnect() {
-        sseTask?.cancel()
-        sseTask = nil
+        sseStreamTask?.cancel()
+        sseStreamTask = nil
         sessionId = nil
         messagesURL = nil
         availableTools = []
@@ -349,6 +390,7 @@ public class MCPSSEClient: ObservableObject {
         serverVersion = ""
         connectionState = .disconnected
         pendingRequests.removeAll()
+        isStreamReady = false
         
         logger.info("🔌 [SSE] Desconectado")
     }
@@ -371,20 +413,14 @@ public class MCPSSEClient: ObservableObject {
 
 // MARK: - Supporting Types
 
-struct InitializeResult {
-    var serverInfo: ServerInfo?
+private struct SSEInitializeResult {
+    var serverInfo: SSEServerInfo?
     var hasTools: Bool = false
 }
 
-struct ServerInfo {
+private struct SSEServerInfo {
     var name: String
     var version: String
-}
-
-struct JSONRPCResponse {
-    var id: Int
-    var result: Any?
-    var error: [String: Any]?
 }
 
 // MARK: - Errors
@@ -396,6 +432,7 @@ enum MCPSSEError: LocalizedError {
     case invalidResponse
     case httpError(Int)
     case timeout
+    case serverError(String)
     
     var errorDescription: String? {
         switch self {
@@ -404,7 +441,8 @@ enum MCPSSEError: LocalizedError {
         case .notConnected: return "No conectado al servidor"
         case .invalidResponse: return "Respuesta inválida del servidor"
         case .httpError(let code): return "Error HTTP: \(code)"
-        case .timeout: return "Timeout de conexión"
+        case .timeout: return "Timeout esperando respuesta"
+        case .serverError(let msg): return "Error del servidor: \(msg)"
         }
     }
 }
