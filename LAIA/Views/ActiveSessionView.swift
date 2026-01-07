@@ -216,38 +216,50 @@ public struct ActiveSessionView: View {
     
     private var bottomHint: some View {
         Group {
-            switch viewModel.state {
-            case .idle:
-                Text("Toca para empezar")
-                    .foregroundStyle(LAIAColors.textMuted)
-                
-            case .listening:
-                Text("Escuchando... (auto-envío al pausar)")
-                    .foregroundStyle(LAIAColors.userVoice)
-                
-            case .detectingVoice:
-                Text("Hablando... (toca para enviar)")
-                    .foregroundStyle(LAIAColors.userVoice)
-                
-            case .transcribing:
-                Text("Procesando voz")
-                    .foregroundStyle(LAIAColors.aiThinking)
-                
-            case .thinking:
-                Text("Pensando...")
-                    .foregroundStyle(LAIAColors.aiThinking)
-                
-            case .speaking:
-                Text("Toca para interrumpir")
-                    .foregroundStyle(LAIAColors.textMuted)
-                
-            case .error:
-                Text("Toca para reintentar")
-                    .foregroundStyle(LAIAColors.error)
+            // Priority: Show tool call if active
+            if let toolName = viewModel.currentToolCall {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: LAIAColors.aiThinking))
+                        .scaleEffect(0.8)
+                    Text("Consultando \(toolName)...")
+                        .foregroundStyle(LAIAColors.aiThinking)
+                }
+            } else {
+                switch viewModel.state {
+                case .idle:
+                    Text("Toca para empezar")
+                        .foregroundStyle(LAIAColors.textMuted)
+                    
+                case .listening:
+                    Text("Escuchando... (auto-envío al pausar)")
+                        .foregroundStyle(LAIAColors.userVoice)
+                    
+                case .detectingVoice:
+                    Text("Hablando... (toca para enviar)")
+                        .foregroundStyle(LAIAColors.userVoice)
+                    
+                case .transcribing:
+                    Text("Procesando voz")
+                        .foregroundStyle(LAIAColors.aiThinking)
+                    
+                case .thinking:
+                    Text("Pensando...")
+                        .foregroundStyle(LAIAColors.aiThinking)
+                    
+                case .speaking:
+                    Text("Toca para interrumpir")
+                        .foregroundStyle(LAIAColors.textMuted)
+                    
+                case .error:
+                    Text("Toca para reintentar")
+                        .foregroundStyle(LAIAColors.error)
+                }
             }
         }
         .font(LAIATypography.caption)
         .animation(.easeInOut, value: viewModel.state)
+        .animation(.easeInOut, value: viewModel.currentToolCall)
     }
     
     // MARK: - Gestures
@@ -308,12 +320,31 @@ public class ActiveSessionViewModel: ObservableObject {
     @Published var isRecordingSession: Bool = false
     @Published var currentRecordingURL: URL?
     
+    // MARK: - MCP Agent State
+    
+    /// MCP connection manager
+    @Published var mcpManager = MCPNetworkManager()
+    
+    /// MCP preferences for server configuration
+    @Published var mcpPrefs = MCPPreferences.shared
+    
+    /// Current tool being called (for UI display)
+    @Published var currentToolCall: String?
+    
+    /// Whether MCP is connected and ready
+    var isMCPReady: Bool {
+        mcpManager.connectionState == .connected && !mcpManager.availableTools.isEmpty
+    }
+    
     // MARK: - Private
     
     private let logger = Logger(subsystem: "com.laia.session", category: "Timing")
     private var metricsTimer: Timer?
     private var speechSynthesizer: AVSpeechSynthesizer?
     private var speechDelegate: SpeechDelegateHandler?
+    
+    /// Agent Tool Loop for orchestrating LLM + MCP
+    private var agentToolLoop: AgentToolLoop?
     private var llmProvider: QwenLLMProvider?
     private let latencyMetrics = LatencyMetrics()
     
@@ -356,6 +387,10 @@ public class ActiveSessionViewModel: ObservableObject {
         llmProvider = QwenLLMProvider(metrics: latencyMetrics)
         speechSynthesizer = AVSpeechSynthesizer()
         
+        // Initialize Agent Tool Loop
+        agentToolLoop = AgentToolLoop(mcpManager: mcpManager)
+        setupAgentCallbacks()
+        
         // Preload LLM model in background for faster first response
         Task {
             do {
@@ -363,6 +398,11 @@ public class ActiveSessionViewModel: ObservableObject {
             } catch {
                 print("Model preload error: \(error)")
             }
+        }
+        
+        // Connect to MCP server if enabled
+        if mcpPrefs.isEnabled {
+            await connectToMCPServer()
         }
         
         // Setup speech delegate
@@ -387,9 +427,10 @@ public class ActiveSessionViewModel: ObservableObject {
         
         startMetricsUpdates()
         
-        // Add welcome message
+        // Add welcome message with MCP status
+        let mcpStatus = mcpPrefs.isEnabled ? " (MCP: conectando...)" : ""
         conversationHistory = [
-            ConversationMessage(role: .assistant, content: "¡Hola! Soy LAIA. Toca para hablarme.")
+            ConversationMessage(role: .assistant, content: "¡Hola! Soy LAIA. Toca para hablarme.\(mcpStatus)")
         ]
     }
     
@@ -412,6 +453,107 @@ public class ActiveSessionViewModel: ObservableObject {
             try session.setActive(true)
         } catch {
             print("Audio session error: \(error)")
+        }
+    }
+    
+    // MARK: - MCP Connection
+    
+    /// Connects to the MCP server using configured preferences
+    private func connectToMCPServer() async {
+        logger.info("🔌 [MCP] Conectando al servidor MCP...")
+        
+        let serverIP = mcpPrefs.serverIP
+        let serverPort = mcpPrefs.serverPort
+        
+        await mcpManager.connect(serverIP: serverIP, port: serverPort)
+        
+        // Verificar estado de conexión
+        switch mcpManager.connectionState {
+        case .connected:
+            logger.info("✅ [MCP] Conectado. Herramientas disponibles: \(self.mcpManager.availableTools.count)")
+            
+            // Inyectar herramientas en el system prompt del LLM
+            await injectToolsIntoSystemPrompt()
+            
+            // Actualizar mensaje de bienvenida
+            if let firstIndex = conversationHistory.indices.first {
+                conversationHistory[firstIndex] = ConversationMessage(
+                    role: .assistant,
+                    content: "¡Hola! Soy LAIA. Tengo \(mcpManager.availableTools.count) herramientas disponibles."
+                )
+            }
+            
+        case .error(let message):
+            logger.error("❌ [MCP] Error de conexión: \(message)")
+            
+        default:
+            logger.warning("⚠️ [MCP] Estado inesperado: \(String(describing: self.mcpManager.connectionState))")
+        }
+    }
+    
+    /// Injects available MCP tools into the LLM's system prompt
+    private func injectToolsIntoSystemPrompt() async {
+        guard let llm = llmProvider, let toolLoop = agentToolLoop else { return }
+        
+        // Build the agent system prompt with tools
+        let agentPrompt = toolLoop.buildAgentSystemPrompt()
+        
+        // Set the prompt in the LLM provider
+        await llm.setSystemPrompt(agentPrompt)
+        
+        logger.info("📋 [AGENT] System prompt inyectado con \(self.mcpManager.availableTools.count) herramientas")
+    }
+    
+    /// Setup callbacks for Agent Tool Loop events (UI updates)
+    private func setupAgentCallbacks() {
+        guard let toolLoop = agentToolLoop else { return }
+        
+        // State change callback
+        toolLoop.onStateChange = { [weak self] state in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                switch state {
+                case .callingTool(let toolName):
+                    self.currentToolCall = toolName
+                    self.logger.info("🔧 [UI] Llamando herramienta: \(toolName)")
+                    
+                case .processingResult:
+                    self.logger.info("⚙️ [UI] Procesando resultado de herramienta...")
+                    
+                case .responding:
+                    self.currentToolCall = nil
+                    
+                case .error(let msg):
+                    self.logger.error("❌ [UI] Error agente: \(msg)")
+                    self.currentToolCall = nil
+                    
+                default:
+                    break
+                }
+            }
+        }
+        
+        // Partial text callback (for streaming UI during tool calls)
+        toolLoop.onPartialText = { [weak self] text in
+            Task { @MainActor [weak self] in
+                self?.currentResponse = text
+            }
+        }
+        
+        // Tool call start callback
+        toolLoop.onToolCallStart = { [weak self] toolName in
+            Task { @MainActor [weak self] in
+                self?.logger.info("📤 [UI] Iniciando llamada a: \(toolName)")
+                LAIAHaptics.shared.interrupt() // Haptic feedback for tool call
+            }
+        }
+        
+        // Tool call complete callback
+        toolLoop.onToolCallComplete = { [weak self] toolName, result in
+            Task { @MainActor [weak self] in
+                self?.logger.info("📥 [UI] Resultado de \(toolName): \(result.prefix(50))...")
+            }
         }
     }
     
@@ -744,6 +886,7 @@ public class ActiveSessionViewModel: ObservableObject {
         LAIAHaptics.shared.aiSpeaking()
         
         do {
+            // Generate initial response from LLM
             let stream = await llm.generate(prompt: prompt, context: conversationHistory)
             
             for try await token in stream {
@@ -760,6 +903,11 @@ public class ActiveSessionViewModel: ObservableObject {
                 fullResponse += token
                 currentResponse = fullResponse
                 tokensPerSecond = Double.random(in: 35...55)
+                
+                // Check for tool call during streaming (pause TTS if detected)
+                if let toolLoop = agentToolLoop, toolLoop.shouldPauseTTS(for: fullResponse) {
+                    logger.info("🔧 [AGENT] Tool call detectada en streaming, esperando...")
+                }
             }
             
             // 📊 TIMING: LLM complete
@@ -770,15 +918,38 @@ public class ActiveSessionViewModel: ObservableObject {
                 logger.info("✅ [TIMING] LLM Complete - Total: \(String(format: "%.0f", totalLLM))ms, ~\(tokenCount) words")
             }
             
-            // Add to history
-            conversationHistory.append(ConversationMessage(role: .assistant, content: fullResponse))
+            // AGENT: Process through Tool Loop if MCP is ready
+            var finalResponse = fullResponse
+            if isMCPReady, let toolLoop = agentToolLoop {
+                logger.info("🤖 [AGENT] Procesando respuesta a través del Tool Loop...")
+                
+                finalResponse = try await toolLoop.processLLMOutput(fullResponse) { [weak self] toolResponse in
+                    // Callback para regenerar con resultado de herramienta
+                    guard let self = self, let llm = self.llmProvider else {
+                        throw LAIAError.generationFailed("LLM not available")
+                    }
+                    
+                    self.logger.info("🔄 [AGENT] Re-generando con resultado de herramienta...")
+                    return try await llm.continueWithToolResultComplete(toolResponse)
+                }
+                
+                // Update UI with final response
+                currentResponse = finalResponse
+            }
             
-            // Speak the response
-            speakResponse(fullResponse)
+            // Add to history
+            conversationHistory.append(ConversationMessage(role: .assistant, content: finalResponse))
+            
+            // Clear tool call state
+            currentToolCall = nil
+            
+            // Speak the final response
+            speakResponse(finalResponse)
             
         } catch {
             logger.error("❌ [TIMING] LLM Error: \(error.localizedDescription)")
             state = .error
+            currentToolCall = nil
         }
     }
     
