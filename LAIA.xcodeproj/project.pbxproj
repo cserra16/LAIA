@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		07169A922F03C9E3001FDFF9 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 07169A912F03C9E3001FDFF9 /* MLXLLM */; };
+		07169A942F03C9F7001FDFF9 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 07169A932F03C9F7001FDFF9 /* MLXLMCommon */; };
+		07BC6AB82F0A989E004556AF /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 07169A8F2F03C9CF001FDFF9 /* MLX */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		071699952F02C691001FDFF9 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,15 +29,42 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		070AB78D2F07DBB9004F05B3 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		070ABFA12F093DE0004F05B3 /* KokoroTestApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = KokoroTestApp.xcodeproj; sourceTree = "<group>"; };
 		071699852F02C68F001FDFF9 /* LAIA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LAIA.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		071699942F02C691001FDFF9 /* LAIATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LAIATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0716999E2F02C692001FDFF9 /* LAIAUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LAIAUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		071699B82F02CC52001FDFF9 /* Exceptions for "LAIA" folder in "LAIA" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 071699842F02C68F001FDFF9 /* LAIA */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		071699872F02C68F001FDFF9 /* LAIA */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				071699B82F02CC52001FDFF9 /* Exceptions for "LAIA" folder in "LAIA" target */,
+			);
 			path = LAIA;
 			sourceTree = "<group>";
 		};
@@ -52,6 +85,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				07BC6AB82F0A989E004556AF /* MLX in Frameworks */,
+				07169A922F03C9E3001FDFF9 /* MLXLLM in Frameworks */,
+				07169A942F03C9F7001FDFF9 /* MLXLMCommon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,12 +108,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		070ABFA42F093DE0004F05B3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		0716997C2F02C68F001FDFF9 = {
 			isa = PBXGroup;
 			children = (
 				071699872F02C68F001FDFF9 /* LAIA */,
 				071699972F02C691001FDFF9 /* LAIATests */,
 				071699A12F02C692001FDFF9 /* LAIAUITests */,
+				07169A8E2F03C9CF001FDFF9 /* Frameworks */,
 				071699862F02C68F001FDFF9 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -92,6 +136,13 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		07169A8E2F03C9CF001FDFF9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -102,6 +153,7 @@
 				071699812F02C68F001FDFF9 /* Sources */,
 				071699822F02C68F001FDFF9 /* Frameworks */,
 				071699832F02C68F001FDFF9 /* Resources */,
+				070AB78D2F07DBB9004F05B3 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -112,6 +164,9 @@
 			);
 			name = LAIA;
 			packageProductDependencies = (
+				07169A8F2F03C9CF001FDFF9 /* MLX */,
+				07169A912F03C9E3001FDFF9 /* MLXLLM */,
+				07169A932F03C9F7001FDFF9 /* MLXLMCommon */,
 			);
 			productName = LAIA;
 			productReference = 071699852F02C68F001FDFF9 /* LAIA.app */;
@@ -195,9 +250,23 @@
 			);
 			mainGroup = 0716997C2F02C68F001FDFF9;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				071699B12F02C7AF001FDFF9 /* XCRemoteSwiftPackageReference "swift-collections" */,
+				071699B22F02C7DA001FDFF9 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
+				071699B32F02C7FF001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift" */,
+				071699B42F02C819001FDFF9 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				07169A362F03A658001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+				07169A372F03BFDE001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 071699862F02C68F001FDFF9 /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = 070ABFA42F093DE0004F05B3 /* Products */;
+					ProjectRef = 070ABFA12F093DE0004F05B3 /* KokoroTestApp.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				071699842F02C68F001FDFF9 /* LAIA */,
@@ -305,13 +374,14 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAVT76BDCW;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_OPTIMIZATION_LEVEL = fast;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
 					"$(inherited)",
@@ -329,7 +399,9 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OBJC_INTEROP_MODE = objcxx;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -374,6 +446,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = fast;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
@@ -386,6 +459,8 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_INTEROP_MODE = objcxx;
+				SWIFT_VERSION = 6.0;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -395,11 +470,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LAIA/LAIA.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UAVT76BDCW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LAIA/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "El asistente procesa tu voz localmente para responder a tus comandos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -427,11 +506,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LAIA/LAIARelease.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UAVT76BDCW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LAIA/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "El asistente procesa tu voz localmente para responder a tus comandos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -578,6 +661,75 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		071699B12F02C7AF001FDFF9 /* XCRemoteSwiftPackageReference "swift-collections" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-collections.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.0;
+			};
+		};
+		071699B22F02C7DA001FDFF9 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.20.0;
+			};
+		};
+		071699B32F02C7FF001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.29.1;
+			};
+		};
+		071699B42F02C819001FDFF9 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		07169A362F03A658001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-examples";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		07169A372F03BFDE001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		07169A8F2F03C9CF001FDFF9 /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 071699B32F02C7FF001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		07169A912F03C9E3001FDFF9 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 07169A372F03BFDE001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		07169A932F03C9F7001FDFF9 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 07169A372F03BFDE001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0716997D2F02C68F001FDFF9 /* Project object */;
 }

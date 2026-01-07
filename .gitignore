@@ -1,0 +1,37 @@
+
+# Xcode
+.DS_Store
+*.swp
+*.lock
+*~
+.AppleDouble
+.LSOverride
+
+# Build generated
+build/
+DerivedData/
+
+# User specific styling
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+
+# Misc
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.xg
+
+# Swift Package Manager
+.swiftpm/xcode/
+.build/
+
+# Local configuration
+local.properties
