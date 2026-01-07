@@ -322,8 +322,8 @@ public class ActiveSessionViewModel: ObservableObject {
     
     // MARK: - MCP Agent State
     
-    /// MCP connection manager
-    @Published var mcpManager = MCPNetworkManager()
+    /// MCP SSE client for legacy Python servers
+    @Published var mcpClient = MCPSSEClient()
     
     /// MCP preferences for server configuration
     @Published var mcpPrefs = MCPPreferences.shared
@@ -333,7 +333,7 @@ public class ActiveSessionViewModel: ObservableObject {
     
     /// Whether MCP is connected and ready
     var isMCPReady: Bool {
-        mcpManager.connectionState == .connected && !mcpManager.availableTools.isEmpty
+        mcpClient.connectionState == .connected && !mcpClient.availableTools.isEmpty
     }
     
     // MARK: - Private
@@ -388,7 +388,7 @@ public class ActiveSessionViewModel: ObservableObject {
         speechSynthesizer = AVSpeechSynthesizer()
         
         // Initialize Agent Tool Loop
-        agentToolLoop = AgentToolLoop(mcpManager: mcpManager)
+        agentToolLoop = AgentToolLoop(mcpClient: mcpClient)
         setupAgentCallbacks()
         
         // Preload LLM model in background for faster first response
@@ -460,17 +460,17 @@ public class ActiveSessionViewModel: ObservableObject {
     
     /// Connects to the MCP server using configured preferences
     private func connectToMCPServer() async {
-        logger.info("🔌 [MCP] Conectando al servidor MCP...")
+        logger.info("🔌 [MCP] Conectando al servidor MCP (SSE)...")
         
         let serverIP = mcpPrefs.serverIP
         let serverPort = mcpPrefs.serverPort
         
-        await mcpManager.connect(serverIP: serverIP, port: serverPort)
+        await mcpClient.connect(serverIP: serverIP, port: serverPort)
         
         // Verificar estado de conexión
-        switch mcpManager.connectionState {
+        switch mcpClient.connectionState {
         case .connected:
-            logger.info("✅ [MCP] Conectado. Herramientas disponibles: \(self.mcpManager.availableTools.count)")
+            logger.info("✅ [MCP] Conectado. Herramientas disponibles: \(self.mcpClient.availableTools.count)")
             
             // Inyectar herramientas en el system prompt del LLM
             await injectToolsIntoSystemPrompt()
@@ -479,7 +479,7 @@ public class ActiveSessionViewModel: ObservableObject {
             if let firstIndex = conversationHistory.indices.first {
                 conversationHistory[firstIndex] = ConversationMessage(
                     role: .assistant,
-                    content: "¡Hola! Soy LAIA. Tengo \(mcpManager.availableTools.count) herramientas disponibles."
+                    content: "¡Hola! Soy LAIA. Tengo \(mcpClient.availableTools.count) herramientas disponibles."
                 )
             }
             
@@ -487,7 +487,7 @@ public class ActiveSessionViewModel: ObservableObject {
             logger.error("❌ [MCP] Error de conexión: \(message)")
             
         default:
-            logger.warning("⚠️ [MCP] Estado inesperado: \(String(describing: self.mcpManager.connectionState))")
+            logger.warning("⚠️ [MCP] Estado inesperado: \(String(describing: self.mcpClient.connectionState))")
         }
     }
     
@@ -501,7 +501,7 @@ public class ActiveSessionViewModel: ObservableObject {
         // Set the prompt in the LLM provider
         await llm.setSystemPrompt(agentPrompt)
         
-        logger.info("📋 [AGENT] System prompt inyectado con \(self.mcpManager.availableTools.count) herramientas")
+        logger.info("📋 [AGENT] System prompt inyectado con \(self.mcpClient.availableTools.count) herramientas")
     }
     
     /// Setup callbacks for Agent Tool Loop events (UI updates)

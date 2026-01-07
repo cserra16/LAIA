@@ -48,7 +48,7 @@ public class AgentToolLoop: ObservableObject {
     // MARK: - Private Properties
     
     private let logger = Logger(subsystem: "com.laia.agent", category: "ToolLoop")
-    private let mcpManager: MCPNetworkManager
+    private let mcpClient: MCPSSEClient
     private var toolCallCount: Int = 0
     
     // MARK: - Callbacks
@@ -67,8 +67,8 @@ public class AgentToolLoop: ObservableObject {
     
     // MARK: - Initialization
     
-    public init(mcpManager: MCPNetworkManager) {
-        self.mcpManager = mcpManager
+    public init(mcpClient: MCPSSEClient) {
+        self.mcpClient = mcpClient
     }
     
     // MARK: - System Prompt Building
@@ -87,7 +87,7 @@ public class AgentToolLoop: ObservableObject {
             with: toolsJSON
         )
         
-        logger.info("📋 System prompt construido con \(self.mcpManager.availableTools.count) herramientas")
+        logger.info("📋 System prompt construido con \(self.mcpClient.availableTools.count) herramientas")
         
         return finalPrompt
     }
@@ -104,7 +104,7 @@ public class AgentToolLoop: ObservableObject {
     
     /// Genera el JSON de herramientas disponibles
     private func generateToolsJSON() -> String {
-        let tools = mcpManager.availableTools
+        let tools = mcpClient.availableTools
         
         if tools.isEmpty {
             return "No hay herramientas disponibles."
@@ -235,7 +235,7 @@ public class AgentToolLoop: ObservableObject {
         logger.info("📤 Ejecutando MCP: \(toolCall.name)")
         
         do {
-            let result = try await mcpManager.callTool(
+            let result = try await mcpClient.callTool(
                 name: toolCall.name,
                 arguments: toolCall.arguments
             )
@@ -281,7 +281,7 @@ extension AgentToolLoop {
     
     /// Helper para verificar si MCP está conectado y listo
     public var isMCPReady: Bool {
-        mcpManager.connectionState == .connected && !mcpManager.availableTools.isEmpty
+        mcpClient.connectionState == .connected && !mcpClient.availableTools.isEmpty
     }
     
     /// Descripción del estado actual para debugging

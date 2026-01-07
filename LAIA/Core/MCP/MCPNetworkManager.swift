@@ -92,8 +92,8 @@ public class MCPNetworkManager: ObservableObject {
         connectionState = .connecting
         logger.info("🔌 [MCP] Conectando a \(serverIP):\(port)...")
         
-        // Construir URL del endpoint MCP (sin SSE)
-        guard let mcpURL = URL(string: "http://\(serverIP):\(port)/mcp") else {
+        // Construir URL del endpoint SSE
+        guard let sseURL = URL(string: "http://\(serverIP):\(port)/sse") else {
             connectionState = .error("URL inválida")
             logger.error("❌ [MCP] URL inválida: \(serverIP):\(port)")
             return
@@ -103,10 +103,10 @@ public class MCPNetworkManager: ObservableObject {
             // 1. Inicializar el Cliente MCP
             client = Client(name: clientName, version: clientVersion)
             
-            // 2. Configurar el transporte HTTP sin streaming (para servidores sin SSE)
+            // 2. Configurar el transporte HTTP con SSE (Server-Sent Events)
             transport = HTTPClientTransport(
-                endpoint: mcpURL,
-                streaming: false  // Disable SSE - use standard HTTP request/response
+                endpoint: sseURL,
+                streaming: true  // Enable SSE for real-time communication
             )
             
             // 3. Conectar y negociar capacidades
