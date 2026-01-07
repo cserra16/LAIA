@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import Combine
 import SwiftUI
 
 /// Preferencias de conexión MCP
@@ -75,13 +76,20 @@ public class MCPPreferences: ObservableObject {
     
     private init() {
         // Cargar valores guardados o usar defaults
-        self.serverIP = UserDefaults.standard.string(forKey: Keys.serverIP) ?? "192.168.1.100"
-        self.serverPort = UserDefaults.standard.integer(forKey: Keys.serverPort)
-        if self.serverPort == 0 {
-            self.serverPort = 8000
+        // Usamos variables locales primero para evitar acceso a self antes de inicializar todo
+        let loadedIP = UserDefaults.standard.string(forKey: Keys.serverIP) ?? "192.168.1.100"
+        var loadedPort = UserDefaults.standard.integer(forKey: Keys.serverPort)
+        if loadedPort == 0 {
+            loadedPort = 8000
         }
-        self.autoConnect = UserDefaults.standard.bool(forKey: Keys.autoConnect)
-        self.isEnabled = UserDefaults.standard.bool(forKey: Keys.isEnabled)
+        let loadedAutoConnect = UserDefaults.standard.bool(forKey: Keys.autoConnect)
+        let loadedIsEnabled = UserDefaults.standard.bool(forKey: Keys.isEnabled)
+        
+        // Ahora asignar a las propiedades
+        self.serverIP = loadedIP
+        self.serverPort = loadedPort
+        self.autoConnect = loadedAutoConnect
+        self.isEnabled = loadedIsEnabled
     }
     
     // MARK: - Methods

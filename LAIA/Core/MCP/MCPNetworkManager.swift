@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import Combine
 import MCP
 import os
 
@@ -63,8 +64,10 @@ public class MCPNetworkManager: ObservableObject {
     /// Transporte HTTP para comunicación SSE
     private var transport: HTTPClientTransport?
     
-    /// Capacidades del servidor tras el handshake
-    private var serverCapabilities: ServerCapabilities?
+    /// Capacidades del servidor (almacenadas como flag)
+    private var supportsToolsCapability: Bool = false
+    private var supportsResourcesCapability: Bool = false
+    private var supportsPromptsCapability: Bool = false
     
     /// Nombre y versión del cliente para el handshake
     private let clientName = "LAIAHost"
@@ -114,20 +117,24 @@ public class MCPNetworkManager: ObservableObject {
             let initResult = try await client.connect(transport: transport)
             
             // Guardar información del servidor
-            serverCapabilities = initResult.capabilities
             serverName = initResult.serverInfo.name
             serverVersion = initResult.serverInfo.version
+            
+            // Guardar capacidades como flags
+            supportsToolsCapability = initResult.capabilities.tools != nil
+            supportsResourcesCapability = initResult.capabilities.resources != nil
+            supportsPromptsCapability = initResult.capabilities.prompts != nil
             
             logger.info("✅ [MCP] Conectado a '\(self.serverName)' v\(self.serverVersion)")
             
             // Log de capacidades
-            if initResult.capabilities.tools != nil {
+            if supportsToolsCapability {
                 logger.info("   ✓ Servidor soporta herramientas (tools)")
             }
-            if initResult.capabilities.resources != nil {
+            if supportsResourcesCapability {
                 logger.info("   ✓ Servidor soporta recursos (resources)")
             }
-            if initResult.capabilities.prompts != nil {
+            if supportsPromptsCapability {
                 logger.info("   ✓ Servidor soporta prompts")
             }
             
@@ -198,13 +205,15 @@ public class MCPNetworkManager: ObservableObject {
         logger.info("📤 [MCP] Llamando herramienta: \(name)")
         
         // Convertir argumentos a formato esperado por el SDK
-        // El SDK espera [String: Value] donde Value es un tipo MCP
         let mcpArguments = convertToMCPArguments(arguments)
         
-        let (content, isError) = try await client.callTool(
+        let (content, isErrorOptional) = try await client.callTool(
             name: name,
             arguments: mcpArguments
         )
+        
+        // Unwrap optional Bool (SDK returns Bool?)
+        let isError = isErrorOptional ?? false
         
         // Extraer texto del contenido
         var responseText = ""
@@ -276,9 +285,14 @@ public class MCPNetworkManager: ObservableObject {
     /// Desconecta del servidor MCP
     public func disconnect() async {
         // El SDK maneja la desconexión limpiamente
+        if let client = client {
+            await client.disconnect()
+        }
         client = nil
         transport = nil
-        serverCapabilities = nil
+        supportsToolsCapability = false
+        supportsResourcesCapability = false
+        supportsPromptsCapability = false
         serverName = ""
         serverVersion = ""
         availableTools = []
@@ -291,17 +305,17 @@ public class MCPNetworkManager: ObservableObject {
     
     /// Verifica si el servidor soporta herramientas
     public var supportsTools: Bool {
-        serverCapabilities?.tools != nil
+        supportsToolsCapability
     }
     
     /// Verifica si el servidor soporta recursos
     public var supportsResources: Bool {
-        serverCapabilities?.resources != nil
+        supportsResourcesCapability
     }
     
     /// Verifica si el servidor soporta prompts
     public var supportsPrompts: Bool {
-        serverCapabilities?.prompts != nil
+        supportsPromptsCapability
     }
 }
 
