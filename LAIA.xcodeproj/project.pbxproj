@@ -10,6 +10,7 @@
 		07169A922F03C9E3001FDFF9 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 07169A912F03C9E3001FDFF9 /* MLXLLM */; };
 		07169A942F03C9F7001FDFF9 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 07169A932F03C9F7001FDFF9 /* MLXLMCommon */; };
 		07BC6AB82F0A989E004556AF /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 07169A8F2F03C9CF001FDFF9 /* MLX */; };
+		07MCP00012F0B0000001FDFF9 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = 07MCP00022F0B0000001FDFF9 /* MCP */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,6 +89,7 @@
 				07BC6AB82F0A989E004556AF /* MLX in Frameworks */,
 				07169A922F03C9E3001FDFF9 /* MLXLLM in Frameworks */,
 				07169A942F03C9F7001FDFF9 /* MLXLMCommon in Frameworks */,
+				07MCP00012F0B0000001FDFF9 /* MCP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -167,6 +169,7 @@
 				07169A8F2F03C9CF001FDFF9 /* MLX */,
 				07169A912F03C9E3001FDFF9 /* MLXLLM */,
 				07169A932F03C9F7001FDFF9 /* MLXLMCommon */,
+				07MCP00022F0B0000001FDFF9 /* MCP */,
 			);
 			productName = LAIA;
 			productReference = 071699852F02C68F001FDFF9 /* LAIA.app */;
@@ -257,6 +260,7 @@
 				071699B42F02C819001FDFF9 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				07169A362F03A658001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
 				07169A372F03BFDE001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				07MCP00032F0B0000001FDFF9 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 071699862F02C68F001FDFF9 /* Products */;
@@ -711,6 +715,14 @@
 				kind = branch;
 			};
 		};
+		07MCP00032F0B0000001FDFF9 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -728,6 +740,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 07169A372F03BFDE001FDFF9 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLMCommon;
+		};
+		07MCP00022F0B0000001FDFF9 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 07MCP00032F0B0000001FDFF9 /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

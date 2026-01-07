@@ -16,5 +16,24 @@
     <array>
         <string>audio</string>
     </array>
+    
+    <!-- MCP: Permisos de Red Local -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>LAIA necesita conectarse al servidor local MCP para acceder a herramientas externas como datos meteorológicos y otros servicios.</string>
+    
+    <!-- Bonjour Services (opcional, para descubrimiento) -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_mcp._tcp</string>
+    </array>
+    
+    <!-- App Transport Security: Permitir HTTP en desarrollo -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
