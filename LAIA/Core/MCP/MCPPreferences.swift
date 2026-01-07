@@ -77,13 +77,15 @@ public class MCPPreferences: ObservableObject {
     private init() {
         // Cargar valores guardados o usar defaults
         // Usamos variables locales primero para evitar acceso a self antes de inicializar todo
-        let loadedIP = UserDefaults.standard.string(forKey: Keys.serverIP) ?? "192.168.1.100"
+        let loadedIP = UserDefaults.standard.string(forKey: Keys.serverIP) ?? "192.168.1.13"
         var loadedPort = UserDefaults.standard.integer(forKey: Keys.serverPort)
         if loadedPort == 0 {
             loadedPort = 8000
         }
         let loadedAutoConnect = UserDefaults.standard.bool(forKey: Keys.autoConnect)
-        let loadedIsEnabled = UserDefaults.standard.bool(forKey: Keys.isEnabled)
+        // Default to enabled for testing
+        let storedEnabled = UserDefaults.standard.object(forKey: Keys.isEnabled)
+        let loadedIsEnabled = storedEnabled != nil ? UserDefaults.standard.bool(forKey: Keys.isEnabled) : true
         
         // Ahora asignar a las propiedades
         self.serverIP = loadedIP
@@ -96,10 +98,10 @@ public class MCPPreferences: ObservableObject {
     
     /// Resetea todas las preferencias a valores por defecto
     public func reset() {
-        serverIP = "192.168.1.100"
+        serverIP = "192.168.1.13"
         serverPort = 8000
         autoConnect = false
-        isEnabled = false
+        isEnabled = true
     }
     
     /// Valida que la IP tenga formato correcto
