@@ -88,18 +88,28 @@ public class AgentToolLoop: ObservableObject {
         )
         
         logger.info("📋 System prompt construido con \(self.mcpClient.availableTools.count) herramientas")
+        logger.debug("📋 [PROMPT] Contenido: \(finalPrompt.prefix(500))...")
         
         return finalPrompt
     }
     
     /// Carga el template del system prompt desde el archivo
     private func loadSystemPromptTemplate() -> String {
-        guard let url = Bundle.main.url(forResource: "systemPrompt", withExtension: "md"),
-              let content = try? String(contentsOf: url, encoding: .utf8) else {
-            // Fallback si no se encuentra el archivo
-            return defaultSystemPrompt
+        // Intentar cargar desde Bundle
+        if let url = Bundle.main.url(forResource: "systemPrompt", withExtension: "md") {
+            logger.info("📄 [PROMPT] Encontrado systemPrompt.md en Bundle")
+            if let content = try? String(contentsOf: url, encoding: .utf8) {
+                logger.info("📄 [PROMPT] Cargado correctamente (\(content.count) chars)")
+                return content
+            } else {
+                logger.warning("⚠️ [PROMPT] Error leyendo archivo")
+            }
+        } else {
+            logger.warning("⚠️ [PROMPT] systemPrompt.md NO encontrado en Bundle, usando fallback")
         }
-        return content
+        
+        // Fallback con instrucciones completas de herramientas
+        return defaultSystemPrompt
     }
     
     /// Genera el JSON de herramientas disponibles
@@ -112,7 +122,7 @@ public class AgentToolLoop: ObservableObject {
         
         let toolDescriptions = tools.map { tool in
             """
-            { "name": "\(tool.name)", "description": "\(tool.description)" }
+            { "name": "\(tool.name)", "description": "\(tool.description.replacingOccurrences(of: "\n", with: " ").prefix(100))..." }
             """
         }
         
@@ -122,15 +132,31 @@ public class AgentToolLoop: ObservableObject {
     /// Prompt por defecto si no se encuentra el archivo
     private var defaultSystemPrompt: String {
         """
-        Eres LAIA, un asistente de voz inteligente.
-        
+        Eres LAIA, un asistente de voz inteligente con acceso a herramientas.
+
+        # HERRAMIENTAS DISPONIBLES
         <tools>
         {{TOOLS_PLACEHOLDER}}
         </tools>
-        
-        Si necesitas información externa, usa: <tool_call>{"name": "...", "arguments": {}}</tool_call>
-        
-        Responde en español, de forma breve y clara.
+
+        # INSTRUCCIONES PARA USAR HERRAMIENTAS
+
+        Cuando el usuario pregunte sobre el clima, tiempo o temperatura, DEBES responder SOLO con:
+        <tool_call>{"name": "get_weather_lhospitalet", "arguments": {}}</tool_call>
+
+        EJEMPLO:
+        - Usuario: "¿Qué tiempo hace?"
+        - Tú: <tool_call>{"name": "get_weather_lhospitalet", "arguments": {}}</tool_call>
+
+        - Usuario: "¿Cuál es la temperatura?"
+        - Tú: <tool_call>{"name": "get_weather_lhospitalet", "arguments": {}}</tool_call>
+
+        IMPORTANTE:
+        - Si preguntan por el tiempo/clima, responde SOLO con <tool_call>
+        - NO digas "no tengo capacidad" - SÍ tienes herramientas
+        - Después de <tool_response>, responde con los datos
+
+        Responde en español, máximo 2 frases.
         """
     }
     
