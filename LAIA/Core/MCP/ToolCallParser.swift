@@ -62,21 +62,38 @@ public struct ToolCallParser {
     // MARK: - Main Parsing
     
     /// Parsea el output completo del LLM buscando llamadas a herramientas
+    /// Soporta tanto <tool_call>JSON</tool_call> como JSON directo
     /// - Parameter output: El texto generado por el LLM
     /// - Returns: Resultado del parsing
     public static func parse(_ output: String) -> LLMOutputParseResult {
+        // Primero intentar con tags <tool_call>
+        if let result = parseWithTags(output) {
+            return result
+        }
+        
+        // Si no hay tags, intentar detectar JSON directo de tool call
+        if let result = parseRawJSON(output) {
+            return result
+        }
+        
+        // No se encontró ninguna tool call
+        return .textOnly(output)
+    }
+    
+    /// Parsea tool calls con tags <tool_call>...</tool_call>
+    private static func parseWithTags(_ output: String) -> LLMOutputParseResult? {
         guard let regex = try? NSRegularExpression(
             pattern: toolCallPattern,
             options: .dotMatchesLineSeparators
         ) else {
-            return .textOnly(output)
+            return nil
         }
         
         let range = NSRange(output.startIndex..., in: output)
         
         guard let match = regex.firstMatch(in: output, range: range),
               let jsonRange = Range(match.range(at: 1), in: output) else {
-            return .textOnly(output)
+            return nil
         }
         
         let jsonString = String(output[jsonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -92,6 +109,24 @@ public struct ToolCallParser {
         }
         
         return .toolCall(textBefore: textBefore, toolCall: toolCall, textAfter: textAfter)
+    }
+    
+    /// Parsea JSON directo sin tags (para modelos que no generan los tags)
+    /// Detecta patrones como: {"name": "tool_name", "arguments": {...}}
+    private static func parseRawJSON(_ output: String) -> LLMOutputParseResult? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Verificar si parece un JSON de tool call
+        guard trimmed.hasPrefix("{") && trimmed.contains("\"name\"") else {
+            return nil
+        }
+        
+        // Intentar parsear como tool call JSON
+        if let toolCall = parseToolCallJSON(trimmed) {
+            return .toolCall(textBefore: "", toolCall: toolCall, textAfter: "")
+        }
+        
+        return nil
     }
     
     /// Parsea el contenido JSON de una tool_call
@@ -110,14 +145,25 @@ public struct ToolCallParser {
     // MARK: - Streaming Detection
     
     /// Detecta si el texto contiene el inicio de una tool_call (para streaming)
-    /// Útil para pausar el TTS mientras se genera la llamada
+    /// Soporta tanto <tool_call> como JSON directo {"name":...}
     public static func containsToolCallStart(_ text: String) -> Bool {
-        text.contains("<tool_call>")
+        text.contains("<tool_call>") || 
+        (text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") && 
+         text.contains("\"name\""))
     }
     
     /// Detecta si una llamada a herramienta está completa
     public static func isToolCallComplete(_ text: String) -> Bool {
-        text.contains("<tool_call>") && text.contains("</tool_call>")
+        // Con tags
+        if text.contains("<tool_call>") && text.contains("</tool_call>") {
+            return true
+        }
+        // JSON directo completo
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") && trimmed.hasSuffix("}") && trimmed.contains("\"name\"") {
+            return true
+        }
+        return false
     }
     
     /// Extrae el texto parcial antes de una tool_call incompleta
