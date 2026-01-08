@@ -149,9 +149,15 @@ public actor QwenLLMProvider: LLMProvider {
             // Get response from ChatSession
             var response = try await session.respond(to: prompt)
             
+            // LOG: Raw response before any filtering
+            logger.info("🔍 [LLM RAW BEFORE FILTER] '\(response.prefix(200))...'")
+            
             // Filter and limit response length
+            // NOTE: Don't filter tool_call tags!
             response = filterThinkingTokens(response)
             response = limitResponseLength(response, maxWords: 50)
+            
+            logger.info("🔍 [LLM AFTER FILTER] '\(response.prefix(200))...'")
             
             // Stream word by word for UI
             for word in response.split(separator: " ") {
