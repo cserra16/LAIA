@@ -922,6 +922,7 @@ public class ActiveSessionViewModel: ObservableObject {
             var finalResponse = fullResponse
             if isMCPReady, let toolLoop = agentToolLoop {
                 logger.info("🤖 [AGENT] Procesando respuesta a través del Tool Loop...")
+                logger.info("📝 [LLM RAW] Respuesta: \(fullResponse)")
                 
                 finalResponse = try await toolLoop.processLLMOutput(fullResponse) { [weak self] toolResponse in
                     // Callback para regenerar con resultado de herramienta
