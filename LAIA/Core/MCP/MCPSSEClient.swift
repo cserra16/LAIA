@@ -46,8 +46,8 @@ public class MCPSSEClient: ObservableObject {
     /// Tarea del stream SSE
     private var sseStreamTask: Task<Void, Never>?
     
-    /// Flag para indicar que la conexión está lista
-    private var isStreamReady = false
+    /// AsyncBytes para el stream
+    private var streamBytes: URLSession.AsyncBytes?
     
     // MARK: - Initialization
     
@@ -69,18 +69,20 @@ public class MCPSSEClient: ObservableObject {
         
         do {
             // 1. Establecer stream SSE y obtener session_id
-            try await startSSEStream(sseURL: sseURL, serverIP: serverIP, port: port)
+            let (bytes, sid) = try await establishSSEAndGetSessionId(sseURL: sseURL)
             
-            // 2. Esperar un momento para que el stream esté listo
-            try await Task.sleep(for: .milliseconds(500))
-            
-            guard let sid = sessionId, messagesURL != nil else {
-                throw MCPSSEError.noSessionId
-            }
+            sessionId = sid
+            messagesURL = URL(string: "http://\(serverIP):\(port)/messages/?session_id=\(sid)")
             
             logger.info("✅ [SSE] Session ID: \(sid.prefix(20))...")
             
-            // 3. Enviar initialize
+            // 2. Iniciar background task para escuchar respuestas
+            startBackgroundListener(bytes: bytes)
+            
+            // 3. Pequeña pausa para que el listener esté listo
+            try await Task.sleep(for: .milliseconds(200))
+            
+            // 4. Enviar initialize
             let initResult = try await sendInitialize()
             
             serverName = initResult.serverInfo?.name ?? "MCP Server"
@@ -88,10 +90,10 @@ public class MCPSSEClient: ObservableObject {
             
             logger.info("✅ [SSE] Conectado a '\(self.serverName)' v\(self.serverVersion)")
             
-            // 4. Enviar initialized notification
+            // 5. Enviar initialized notification
             try await sendInitialized()
             
-            // 5. Descubrir herramientas
+            // 6. Descubrir herramientas
             await discoverTools()
             
             connectionState = .connected
@@ -102,13 +104,13 @@ public class MCPSSEClient: ObservableObject {
         }
     }
     
-    // MARK: - SSE Stream
+    // MARK: - SSE Connection Setup
     
-    /// Inicia y mantiene el stream SSE abierto
-    private func startSSEStream(sseURL: URL, serverIP: String, port: Int) async throws {
+    /// Establece conexión SSE y obtiene session_id del primer evento
+    private func establishSSEAndGetSessionId(sseURL: URL) async throws -> (URLSession.AsyncBytes, String) {
         var request = URLRequest(url: sseURL)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 300 // Largo timeout para SSE
+        request.timeoutInterval = 300
         
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         
@@ -117,59 +119,72 @@ public class MCPSSEClient: ObservableObject {
             throw MCPSSEError.connectionFailed
         }
         
-        // Procesar el stream SSE en background
+        logger.info("📡 [SSE] Stream conectado, esperando endpoint...")
+        
+        // Leer líneas hasta encontrar el session_id
+        var foundSessionId: String?
+        
+        for try await line in bytes.lines {
+            logger.debug("[SSE] Línea: \(line)")
+            
+            // Ignorar líneas de comentario/ping
+            if line.hasPrefix(":") {
+                continue
+            }
+            
+            // Buscar data: con session_id
+            if line.hasPrefix("data:") {
+                let data = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                
+                if data.contains("session_id=") {
+                    if let range = data.range(of: "session_id=") {
+                        let sidStart = data[range.upperBound...]
+                        if let endRange = sidStart.range(of: "&") {
+                            foundSessionId = String(sidStart[..<endRange.lowerBound])
+                        } else {
+                            foundSessionId = String(sidStart)
+                        }
+                        
+                        logger.info("✅ [SSE] Endpoint encontrado!")
+                        break
+                    }
+                }
+            }
+        }
+        
+        guard let sid = foundSessionId else {
+            throw MCPSSEError.noSessionId
+        }
+        
+        return (bytes, sid)
+    }
+    
+    /// Inicia listener en background para respuestas
+    private func startBackgroundListener(bytes: URLSession.AsyncBytes) {
         sseStreamTask = Task { [weak self] in
             do {
                 for try await line in bytes.lines {
                     guard let self = self, !Task.isCancelled else { break }
-                    await self.processSSELine(line, serverIP: serverIP, port: port)
+                    await self.processSSELine(line)
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.logger.error("❌ [SSE] Stream error: \(error.localizedDescription)")
+                    self?.logger.warning("⚠️ [SSE] Stream cerrado: \(error.localizedDescription)")
                 }
             }
-        }
-        
-        // Esperar hasta obtener el session_id
-        var attempts = 0
-        while sessionId == nil && attempts < 50 {
-            try await Task.sleep(for: .milliseconds(100))
-            attempts += 1
-        }
-        
-        if sessionId == nil {
-            throw MCPSSEError.noSessionId
         }
     }
     
     /// Procesa cada línea del stream SSE
-    private func processSSELine(_ line: String, serverIP: String, port: Int) async {
-        logger.debug("[SSE] Línea: \(line)")
+    private func processSSELine(_ line: String) async {
+        // Ignorar comentarios/pings
+        if line.hasPrefix(":") {
+            return
+        }
         
-        // Evento endpoint con session_id
+        // Procesar data: con JSON-RPC response
         if line.hasPrefix("data:") {
             let data = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-            
-            // Detectar URL del endpoint con session_id
-            if data.contains("session_id="), sessionId == nil {
-                if let range = data.range(of: "session_id=") {
-                    let sidStart = data[range.upperBound...]
-                    if let endRange = sidStart.range(of: "&") {
-                        sessionId = String(sidStart[..<endRange.lowerBound])
-                    } else {
-                        sessionId = String(sidStart)
-                    }
-                    
-                    // Construir URL de mensajes
-                    if let sid = sessionId {
-                        messagesURL = URL(string: "http://\(serverIP):\(port)/messages/?session_id=\(sid)")
-                        isStreamReady = true
-                        logger.info("✅ [SSE] Endpoint configurado")
-                    }
-                }
-                return
-            }
             
             // Intentar parsear como JSON-RPC response
             if let jsonData = data.data(using: .utf8),
@@ -229,7 +244,6 @@ public class MCPSSEClient: ObservableObject {
     
     /// Envía la notificación initialized
     private func sendInitialized() async throws {
-        // Las notificaciones no esperan respuesta
         try await sendNotification(method: "notifications/initialized", params: [:])
     }
     
@@ -314,36 +328,54 @@ public class MCPSSEClient: ObservableObject {
             "params": params
         ]
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 30
-        
         logger.debug("📤 [SSE] POST \(method) id=\(id)")
         
-        // Enviar POST (esperamos 202 Accepted, respuesta viene por SSE)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw MCPSSEError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        
-        logger.debug("📬 [SSE] Enviado, esperando respuesta en stream...")
-        
-        // Esperar la respuesta del stream SSE usando continuation
+        // Registrar continuation ANTES de enviar
         return try await withCheckedThrowingContinuation { continuation in
-            Task { @MainActor in
-                self.pendingRequests[id] = continuation
+            // Registrar primero
+            pendingRequests[id] = continuation
+            
+            // Luego enviar
+            Task {
+                do {
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                    request.timeoutInterval = 30
+                    
+                    let (_, response) = try await URLSession.shared.data(for: request)
+                    
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          (200...299).contains(httpResponse.statusCode) else {
+                        await MainActor.run { [weak self] in
+                            if let cont = self?.pendingRequests.removeValue(forKey: id) {
+                                cont.resume(throwing: MCPSSEError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0))
+                            }
+                        }
+                        return
+                    }
+                    
+                    await MainActor.run { [weak self] in
+                        self?.logger.debug("📬 [SSE] Enviado id=\(id), esperando stream...")
+                    }
+                    
+                } catch {
+                    await MainActor.run { [weak self] in
+                        if let cont = self?.pendingRequests.removeValue(forKey: id) {
+                            cont.resume(throwing: error)
+                        }
+                    }
+                }
             }
             
             // Timeout de 30 segundos
             Task {
                 try? await Task.sleep(for: .seconds(30))
                 await MainActor.run { [weak self] in
-                    if let continuation = self?.pendingRequests.removeValue(forKey: id) {
-                        continuation.resume(throwing: MCPSSEError.timeout)
+                    if let cont = self?.pendingRequests.removeValue(forKey: id) {
+                        self?.logger.warning("⏰ [SSE] Timeout para id=\(id)")
+                        cont.resume(throwing: MCPSSEError.timeout)
                     }
                 }
             }
@@ -389,8 +421,12 @@ public class MCPSSEClient: ObservableObject {
         serverName = ""
         serverVersion = ""
         connectionState = .disconnected
+        
+        // Cancelar requests pendientes
+        for (_, continuation) in pendingRequests {
+            continuation.resume(throwing: MCPSSEError.notConnected)
+        }
         pendingRequests.removeAll()
-        isStreamReady = false
         
         logger.info("🔌 [SSE] Desconectado")
     }
