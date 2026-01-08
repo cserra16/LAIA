@@ -391,16 +391,16 @@ public class ActiveSessionViewModel: ObservableObject {
         agentToolLoop = AgentToolLoop(mcpClient: mcpClient)
         setupAgentCallbacks()
         
-        // Preload LLM model in background for faster first response
-        Task {
-            do {
-                try await llmProvider?.preloadModel()
-            } catch {
-                print("Model preload error: \(error)")
-            }
+        // IMPORTANT: Preload LLM model FIRST (blocking) before injecting tools
+        // This ensures modelContext is available for setSystemPrompt
+        do {
+            try await llmProvider?.preloadModel()
+            logger.info("✅ [STARTUP] Modelo LLM cargado correctamente")
+        } catch {
+            logger.error("❌ [STARTUP] Error cargando modelo: \(error)")
         }
         
-        // Connect to MCP server if enabled
+        // Connect to MCP server if enabled (AFTER model is loaded)
         if mcpPrefs.isEnabled {
             await connectToMCPServer()
         }
