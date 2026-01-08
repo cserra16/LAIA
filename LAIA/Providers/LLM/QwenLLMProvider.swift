@@ -31,6 +31,7 @@ public actor QwenLLMProvider: LLMProvider {
     
     #if canImport(MLXLLM)
     private var chatSession: ChatSession?
+    private var modelContext: ModelContext?  // Store for recreating ChatSession
     // Using Qwen2.5 instead of Qwen3 to avoid thinking tokens
     private let modelId = "mlx-community/Qwen2.5-3B-Instruct-4bit"
     #endif
@@ -58,7 +59,11 @@ public actor QwenLLMProvider: LLMProvider {
                 print("Download: \(Int(progress.fractionCompleted * 100))%")
             }
             
-            chatSession = ChatSession(model)
+            // Store the model container for later ChatSession recreation
+            modelContext = model
+            
+            // Create initial ChatSession with default instructions
+            chatSession = ChatSession(model, instructions: defaultSystemPrompt)
             
             _isLoaded = true
             let elapsed = Date().timeIntervalSince(startTime)
@@ -293,8 +298,20 @@ public actor QwenLLMProvider: LLMProvider {
     private var currentSystemPrompt: String = ""
     
     /// Set a custom system prompt (e.g., with MCP tools injected)
+    /// This recreates the ChatSession with the new instructions
     public func setSystemPrompt(_ prompt: String) {
         currentSystemPrompt = prompt
+        
+        // CRITICAL: Recreate ChatSession with new instructions
+        #if canImport(MLXLLM)
+        if let model = modelContext {
+            logger.info("📋 [LLM] Recreando ChatSession con nuevo system prompt (\(prompt.count) chars)")
+            chatSession = ChatSession(model, instructions: prompt)
+        } else {
+            logger.warning("⚠️ [LLM] ModelContainer no disponible para setSystemPrompt")
+        }
+        #endif
+        
         addSystemPrompt()
     }
     
