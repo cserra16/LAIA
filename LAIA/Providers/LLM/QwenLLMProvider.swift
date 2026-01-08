@@ -389,7 +389,11 @@ public actor QwenLLMProvider: LLMProvider {
         }
     }
     
+    private var lastToolResponse: String = ""
+    
     private func addToolResponse(_ response: String) {
+        // Guardar para usar en performContinuation
+        lastToolResponse = response
         // Añadir como mensaje especial (rol tool o usuario según implementación)
         conversationHistory.append(ConversationMessage(role: .user, content: response))
         _currentContextTokens = estimateTokenCount(for: conversationHistory)
@@ -417,8 +421,17 @@ public actor QwenLLMProvider: LLMProvider {
         var isFirst = true
         
         do {
-            // Continuar la conversación - el modelo verá el tool_response
-            var response = try await session.respond(to: "Continúa tu respuesta usando los datos proporcionados.")
+            // IMPORTANTE: Pasar los datos reales de la herramienta en el prompt
+            // para que el modelo los vea y use
+            let prompt = """
+            Resultado de la herramienta: \(lastToolResponse)
+            
+            Responde al usuario de forma natural usando estos datos. Solo di la información, no repitas el comando.
+            """
+            
+            logger.info("📝 [LLM] Prompt para continuación: \(prompt.prefix(100))...")
+            
+            var response = try await session.respond(to: prompt)
             
             // Filter and limit response
             response = filterThinkingTokens(response)
